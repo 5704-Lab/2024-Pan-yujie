@@ -1,0 +1,16 @@
+# Python 3.11; generation dependency set exercised in the local GPU smoke run.
+# Install a torch/torchvision CUDA build appropriate for the target machine.
+torch==2.8.0
+torchvision==0.23.0
+transformers==4.30.2
+huggingface-hub==0.16.4
+accelerate==0.24.1
+safetensors==0.5.2
+numpy==1.26.4
+Pillow==10.4.0
+einops==0.6.1
+scipy==1.11.4
+packaging==26.3
+tqdm==4.67.3
+PyYAML==6.0.3
+# Use dual-interrelated_diff/diffusers, not the pip diffusers package.

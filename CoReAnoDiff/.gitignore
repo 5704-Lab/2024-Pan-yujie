@@ -1,0 +1,35 @@
+# Datasets and derived annotations, including future named data directories
+/data*/
+/datasets/
+/generation_pilot/
+/generation_smoke*/
+/models/
+**/all_generate/
+**/generate_data/
+**/regional_runs/
+**/regional_outputs/
+**/checkpoint-*/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.onnx
+
+# Environments, credentials, caches, IDE/deployment files
+.venv*/
+venv/
+.cache*/
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+.aws/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+*.log
+*.csv

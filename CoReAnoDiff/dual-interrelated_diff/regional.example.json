@@ -1,0 +1,35 @@
+{
+  "base_model": "../models/stable-diffusion-v1-5",
+  "anchor": "regional_runs/normal/adapter_bank.pt",
+  "mode": "generate",
+  "reference": "data/normal_reference.png",
+  "output": "regional_outputs/honeycomb_groove",
+  "height": 512,
+  "width": 512,
+  "steps": 50,
+  "guidance": 2.5,
+  "seeds": [
+    32,
+    33,
+    34
+  ],
+  "precision": "fp16",
+  "interpolation": "bilinear",
+  "feather": 2.0,
+  "shared_saim": false,
+  "edit_strength": 0.75,
+  "regions": [
+    {
+      "class": "honeycomb",
+      "adapter": "regional_runs/honeycomb/adapter_bank.pt",
+      "mask": "layouts/region_0.png",
+      "strength": 1.0
+    },
+    {
+      "class": "groove",
+      "adapter": "regional_runs/groove/adapter_bank.pt",
+      "mask": "layouts/region_1.png",
+      "strength": 1.0
+    }
+  ]
+}
