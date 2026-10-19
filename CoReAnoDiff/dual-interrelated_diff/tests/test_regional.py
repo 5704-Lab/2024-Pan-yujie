@@ -1,6 +1,6 @@
 """CPU contract tests using the actual vendored dual-branch processor classes.
 
-Extract only the two class definitions through AST to isolate attention tests
+Extract only the attention class definitions through AST to isolate attention tests
 from optional pipeline packages (transformers, hub, torchvision, etc.). No
 processor implementation is copied or replaced. Full SD integration is separate.
 """
@@ -27,17 +27,17 @@ sys.path.insert(0, str(ROOT))
 from manifest_dataset import ManifestDataset
 from inference_regional import sample
 from regional_adapters import (RegionalAttnProcessor, file_digest, install_regional_adapters,
-                               normalized_weights, read_bank, save_bank)
+                               normalized_weights, read_bank, save_bank, create_processors)
 
 
-def vendored_processor():
+def vendored_processor(name="LoRAAttnProcessor2_0"):
     path = ROOT / "diffusers/models/attention_processor.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
     classes = [node for node in tree.body if isinstance(node, ast.ClassDef)
-               and node.name in ("LoRALinearLayer", "LoRAAttnProcessor2_0")]
+               and node.name in ("LoRALinearLayer", "LoRAAttnProcessor2_0", "AttnProcessor2_0")]
     namespace = dict(torch=torch, nn=nn, F=F, einops=einops, Attention=nn.Module)
     exec(compile(ast.Module(body=classes, type_ignores=[]), str(path), "exec"), namespace)
-    return namespace["LoRAAttnProcessor2_0"]
+    return namespace[name]
 
 
 PROCESSOR = vendored_processor()
@@ -52,6 +52,7 @@ class SmallAttention(nn.Module):
         self.to_out = nn.ModuleList([nn.Linear(8, 8), nn.Dropout(0)])
         self.heads = 2
         self.group_norm, self.norm_cross = None, False
+        self.spatial_norm = None
         self.residual_connection, self.rescale_output_factor = True, 1
 
     def forward(self, hidden_states, encoder_hidden_states=None):
@@ -83,6 +84,41 @@ class SmallUNet(nn.Module):
 
 
 class RegionalTests(unittest.TestCase):
+    def test_fresh_dual_adapter_preserves_original_attention(self):
+        unet = SmallUNet()
+        block = unet.block.transformer_blocks[0]
+        block.attn2 = SmallAttention(context=6)
+        # Include both self- and cross-attention in a minimal processor map.
+        class BothUNet(SmallUNet):
+            @property
+            def attn_processors(self):
+                return {f"block.transformer_blocks.0.{name}.processor": None for name in ("attn1", "attn2")}
+        model = BothUNet()
+        model.block = unet.block
+        original = vendored_processor("AttnProcessor2_0")()
+        with patch("regional_adapters._processor_class", return_value=PROCESSOR):
+            processors = create_processors(model, rank=2)
+        for name, processor in processors.items():
+            attn = model.get_submodule(name[:-len(".processor")])
+            context = torch.randn(4, 5, 6) if ".attn2." in name else None
+            torch.testing.assert_close(processor(attn, self.hidden, context), original(attn, self.hidden, context))
+            self.assertEqual(processor.temporal_o.weight.abs().sum(), 0)
+
+    def test_zero_saim_still_learns_and_legacy_remains_available(self):
+        model = SmallUNet()
+        with patch("regional_adapters._processor_class", return_value=PROCESSOR):
+            processor = next(iter(create_processors(model, rank=2).values()))
+            legacy = next(iter(create_processors(model, rank=2, saim_init="legacy_random").values()))
+        self.assertGreater(legacy.temporal_o.weight.abs().sum(), 0)
+        optimizer = torch.optim.SGD(processor.parameters(), lr=.1)
+        target = torch.randn_like(self.hidden)
+        F.mse_loss(processor(self.attn, self.hidden), target).backward()
+        self.assertGreater(processor.temporal_o.weight.grad.abs().sum(), 0)
+        optimizer.step()
+        optimizer.zero_grad()
+        F.mse_loss(processor(self.attn, self.hidden), target).backward()
+        self.assertGreater(processor.temporal_v.weight.grad.abs().sum(), 0)
+
     def setUp(self):
         torch.manual_seed(7)
         self.attn = SmallAttention()

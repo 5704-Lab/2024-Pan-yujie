@@ -24,6 +24,8 @@ def parse_args():
     parser.add_argument("--role", choices=["anchor", "expert"], required=True)
     parser.add_argument("--anchor", help="Same normal adapter_bank.pt for every expert")
     parser.add_argument("--freeze-saim", action="store_true", help="Ablation: retain anchor temporal_* parameters")
+    parser.add_argument("--prompt-blend", default=None, help="Shared descriptive whole-image prompt; experts inherit anchor")
+    parser.add_argument("--prompt-fg", default=None, help="Shared descriptive foreground prompt; experts inherit anchor")
     parser.add_argument("--resolution", type=int, default=512)
     parser.add_argument("--rank", type=int, default=4)
     parser.add_argument("--batch-size", type=int, default=1)
@@ -61,7 +63,9 @@ def main(args):
     dtype = torch.float16 if args.precision == "fp16" else torch.float32
     base_model = str(Path(args.base_model).resolve())
     metadata = dict(role=args.role, category=args.category, base_model=base_model,
-                    prompt_blend="a vfx with sks", prompt_fg="sks", seed=args.seed,
+                    prompt_blend=args.prompt_blend or "a close-up photograph of a concrete core sample, realistic concrete texture",
+                    prompt_fg=args.prompt_fg or "a concrete surface defect on a plain gray background", seed=args.seed,
+                    saim_initialization="zero_output_projection_v1",
                     manifest_sha256=file_digest(args.manifest), freeze_saim=args.freeze_saim,
                     resolution=args.resolution)
     unet = UNet2DConditionModel.from_pretrained(base_model, subfolder="unet", local_files_only=True)
@@ -78,7 +82,12 @@ def main(args):
         for processor in processors.values():
             processor.float()
         metadata["anchor_sha256"] = file_digest(args.anchor)
+        for key in ("prompt_blend", "prompt_fg"):
+            requested = getattr(args, key)
+            if requested is not None and requested != anchor["metadata"][key]:
+                raise ValueError("Experts must use the same prompts as the shared anchor")
         metadata.update({k: anchor["metadata"][k] for k in ("prompt_blend", "prompt_fg")})
+        metadata["saim_initialization"] = anchor["metadata"].get("saim_initialization", "legacy_random")
     else:
         processors = create_processors(unet, args.rank)
     modules = nn.ModuleList(list(processors.values())).to(device=device, dtype=torch.float32)

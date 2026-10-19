@@ -25,7 +25,9 @@ def _processor_class():
     return LoRAAttnProcessor2_0
 
 
-def create_processors(unet, rank=4):
+def create_processors(unet, rank=4, saim_init="zero"):
+    if saim_init not in ("zero", "legacy_random"):
+        raise ValueError("saim_init must be zero or legacy_random")
     cls = _processor_class()
     processors = {}
     for name in unet.attn_processors:
@@ -35,6 +37,13 @@ def create_processors(unet, rank=4):
             cross_attention_dim=None if name.endswith("attn1.processor") else attention.to_k.in_features,
             rank=rank,
         )
+        if saim_init == "zero":
+            # LoRA already starts with zero output. SAIM must also initially be
+            # a zero residual so fresh adapters preserve the pretrained UNet.
+            # Keep upstream Q/K/V/I random so temporal_o learns on the first
+            # update and the other temporal parameters receive gradients later.
+            nn.init.zeros_(processors[name].temporal_o.weight)
+            nn.init.zeros_(processors[name].temporal_o.bias)
     return processors
 
 

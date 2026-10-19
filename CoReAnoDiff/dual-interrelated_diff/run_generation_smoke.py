@@ -32,6 +32,8 @@ def main():
             metadata = read_bank(bank)["metadata"]
             if metadata["category"] != category or metadata["base_model"] != str(base):
                 raise ValueError("Existing smoke bank is from another run")
+            if metadata.get("saim_initialization") != "zero_output_projection_v1":
+                raise ValueError("This is a legacy random-SAIM smoke bank; use a new output directory to retrain")
             run = json.loads((target / "run.json").read_text())
             if run["steps"] != args.steps or metadata["manifest_sha256"] != file_digest(data / (category + ".jsonl")):
                 raise ValueError("Existing smoke bank used different steps or training records")
